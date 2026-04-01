@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -7,15 +5,15 @@ from pydantic import BaseModel, Field
 from src.file_store import TextBackedStore
 
 app = FastAPI(title="Secure Social Web API", version="0.1.0")
-store = TextBackedStore(Path("data/web_store.json"))
+store = TextBackedStore("firebase.json")
 
 app.add_middleware(
     CORSMiddleware,
-    # allow_origins=["http://localhost:5173"],
-    # allow_credentials=True,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
     
-    allow_origins=["*"],
-    allow_credentials=False,
+    # allow_origins=["*"],
+    # allow_credentials=False,
     
     allow_methods=["*"],
     allow_headers=["*"],

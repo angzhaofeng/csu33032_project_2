@@ -25,6 +25,8 @@ This project is a full-stack discussion board prototype with:
 
 ## Run With Docker Compose
 
+Place `firebase.json` in the project root (same level as `docker-compose.yml`)
+
 ```bash
 docker compose up -d
 ```
@@ -71,7 +73,7 @@ Frontend runs on `http://localhost:5173`.
 - `GET /posts` (Bearer token required)
 - `POST /posts` (Bearer token required)
 
-## Quick Backend Check
+<!-- ## Quick Backend Check
 
 1. Start the backend.
 2. Send `GET http://127.0.0.1:8000/health`.
@@ -81,4 +83,4 @@ Frontend runs on `http://localhost:5173`.
 {
   "status": "ok"
 }
-```
+``` -->
