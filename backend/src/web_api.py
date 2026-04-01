@@ -40,6 +40,11 @@ class AddGroupMemberRequest(BaseModel):
     username: str = Field(min_length=3, max_length=30)
 
 
+class RemoveGroupMemberRequest(BaseModel):
+    group_name: str = Field(min_length=1, max_length=64)
+    username: str = Field(min_length=3, max_length=30)
+
+
 class CreateGroupRequest(BaseModel):
     group_name: str = Field(min_length=1, max_length=64)
 
@@ -145,3 +150,16 @@ def add_group_member(payload: AddGroupMemberRequest, requester: str = Depends(ge
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"message": "Member added to secure group.", "group": result}
+
+
+@app.post("/groups/members/remove", status_code=200)
+def remove_group_member(payload: RemoveGroupMemberRequest, requester: str = Depends(get_current_user)) -> dict:
+    try:
+        result = store.remove_member_from_group(
+            requester=requester,
+            group_name=payload.group_name.strip(),
+            username_to_remove=payload.username.strip(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"message": "Member removed from secure group.", "group": result}

@@ -7,6 +7,7 @@ import {
   fetchPosts,
   fetchUsers,
   login,
+  removeGroupMemberFromGroup,
   signup,
 } from "./api";
 import type { AuthMode, Post } from "./types";
@@ -26,8 +27,12 @@ export default function App() {
   const [newGroupName, setNewGroupName] = useState("");
   const [selectedGroup, setSelectedGroup] = useState("");
   const [memberUsername, setMemberUsername] = useState("");
+  const [memberToRemove, setMemberToRemove] = useState("");
   const [memberOptions, setMemberOptions] = useState<string[]>([]);
+  const [removeMemberOptions, setRemoveMemberOptions] = useState<string[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
+  const [isComposerOpen, setIsComposerOpen] = useState(false);
+  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [posts, setPosts] = useState<Post[]>([]);
@@ -69,9 +74,16 @@ export default function App() {
       const options = data.users.filter(
         (candidate) => candidate !== currentUser && !data.group_members.includes(candidate)
       );
+      const removable = data.group_members.filter((candidate) => candidate !== currentUser);
+
       setMemberOptions(options);
+      setRemoveMemberOptions(removable);
+
       if (!options.includes(memberUsername)) {
         setMemberUsername(options[0] ?? "");
+      }
+      if (!removable.includes(memberToRemove)) {
+        setMemberToRemove(removable[0] ?? "");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load users.");
@@ -104,6 +116,8 @@ export default function App() {
     } else {
       setMemberOptions([]);
       setMemberUsername("");
+      setRemoveMemberOptions([]);
+      setMemberToRemove("");
     }
   }, [token, selectedGroup, currentUser]);
 
@@ -166,6 +180,7 @@ export default function App() {
       await createPost(token, selectedGroup, message.trim());
       setMessage("");
       await loadPosts(token);
+      setIsComposerOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to publish post.");
     }
@@ -190,6 +205,25 @@ export default function App() {
     }
   }
 
+  async function handleRemoveMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!memberToRemove.trim() || !selectedGroup) {
+      return;
+    }
+
+    setError("");
+    setInfo("");
+
+    try {
+      await removeGroupMemberFromGroup(token, selectedGroup, memberToRemove.trim());
+      setInfo(`Removed ${memberToRemove.trim()} from group ${selectedGroup}.`);
+      await loadMemberOptions(token, selectedGroup);
+      await loadPosts(token);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove member.");
+    }
+  }
+
   function handleLogout() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
@@ -198,6 +232,8 @@ export default function App() {
     setGroups([]);
     setSelectedGroup("");
     setPosts([]);
+    setIsComposerOpen(false);
+    setIsGroupModalOpen(false);
     setInfo("You have logged out.");
   }
 
@@ -250,86 +286,18 @@ export default function App() {
               <h1>Home feed</h1>
               <p className="subtitle">Signed in as {currentUser}</p>
             </div>
-            <button className="secondary" onClick={handleLogout}>
-              Logout
-            </button>
-          </header>
-
-          <form className="group-form" onSubmit={handleCreateGroup}>
-            <label htmlFor="group-name">Create Group</label>
-            <div className="member-row">
-              <input
-                id="group-name"
-                value={newGroupName}
-                onChange={(e) => setNewGroupName(e.target.value)}
-                placeholder="e.g. csu-team"
-                minLength={1}
-                maxLength={64}
-                required
-              />
-              <button type="submit">Create group</button>
-            </div>
-          </form>
-
-          <div className="group-picker">
-            <label htmlFor="group-select">Current Group</label>
-            <select
-              id="group-select"
-              value={selectedGroup}
-              onChange={(e) => setSelectedGroup(e.target.value)}
-              disabled={groups.length === 0}
-            >
-              {groups.length === 0 ? (
-                <option value="">No groups yet. Create one.</option>
-              ) : (
-                groups.map((group) => (
-                  <option key={group} value={group}>
-                    {group}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
-
-          <form className="member-form" onSubmit={handleAddMember}>
-            <label htmlFor="member-username">Add Member To Current Group</label>
-            <div className="member-row">
-              <select
-                id="member-username"
-                value={memberUsername}
-                onChange={(e) => setMemberUsername(e.target.value)}
-                required
-                disabled={memberOptions.length === 0 || !selectedGroup}
-              >
-                {memberOptions.length === 0 ? (
-                  <option value="">No available users to add</option>
-                ) : (
-                  memberOptions.map((candidate) => (
-                    <option key={candidate} value={candidate}>
-                      {candidate}
-                    </option>
-                  ))
-                )}
-              </select>
-              <button type="submit" disabled={memberOptions.length === 0 || !selectedGroup}>
-                Add member
+            <div className="board-actions">
+              <button className="primary-action" onClick={() => setIsComposerOpen(true)}>
+                Add Post
+              </button>
+              <button className="primary-action" onClick={() => setIsGroupModalOpen(true)}>
+                Group
+              </button>
+              <button className="secondary" onClick={handleLogout}>
+                Logout
               </button>
             </div>
-          </form>
-
-          <form className="post-form" onSubmit={handleCreatePost}>
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder={selectedGroup ? `Share to ${selectedGroup}...` : "Create/select a group first."}
-              maxLength={1000}
-              disabled={!selectedGroup}
-            />
-            <button type="submit" disabled={!selectedGroup}>
-              Post
-            </button>
-          </form>
-
+          </header>
 
           {error && <p className="error-text">{error}</p>}
           {info && <p className="info-text">{info}</p>}
@@ -350,6 +318,205 @@ export default function App() {
               </article>
             ))}
           </div>
+
+          {isComposerOpen && (
+            <div className="modal-overlay" onClick={() => setIsComposerOpen(false)}>
+              <section className="modal-card" onClick={(e) => e.stopPropagation()}>
+                <header className="modal-header">
+                  <h2>Add Post</h2>
+                  <button className="secondary" onClick={() => setIsComposerOpen(false)}>
+                    Close
+                  </button>
+                </header>
+
+                <div className="group-picker">
+                  <label htmlFor="group-select">Current Group</label>
+                  <select
+                    id="group-select"
+                    value={selectedGroup}
+                    onChange={(e) => setSelectedGroup(e.target.value)}
+                    disabled={groups.length === 0}
+                  >
+                    {groups.length === 0 ? (
+                      <option value="">No groups yet. Create one.</option>
+                    ) : (
+                      groups.map((group) => (
+                        <option key={group} value={group}>
+                          {group}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+
+                {/* <form className="member-form" onSubmit={handleAddMember}>
+                  <label htmlFor="member-username">Add Member To Current Group</label>
+                  <div className="member-row">
+                    <select
+                      id="member-username"
+                      value={memberUsername}
+                      onChange={(e) => setMemberUsername(e.target.value)}
+                      required
+                      disabled={memberOptions.length === 0 || !selectedGroup}
+                    >
+                      {memberOptions.length === 0 ? (
+                        <option value="">No available users to add</option>
+                      ) : (
+                        memberOptions.map((candidate) => (
+                          <option key={candidate} value={candidate}>
+                            {candidate}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    <button type="submit" disabled={memberOptions.length === 0 || !selectedGroup}>
+                      Add member
+                    </button>
+                  </div>
+                </form>
+
+                <form className="member-form" onSubmit={handleRemoveMember}>
+                  <label htmlFor="member-remove">Remove Member From Current Group</label>
+                  <div className="member-row">
+                    <select
+                      id="member-remove"
+                      value={memberToRemove}
+                      onChange={(e) => setMemberToRemove(e.target.value)}
+                      required
+                      disabled={removeMemberOptions.length === 0 || !selectedGroup}
+                    >
+                      {removeMemberOptions.length === 0 ? (
+                        <option value="">No removable members in this group</option>
+                      ) : (
+                        removeMemberOptions.map((candidate) => (
+                          <option key={candidate} value={candidate}>
+                            {candidate}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    <button type="submit" disabled={removeMemberOptions.length === 0 || !selectedGroup}>
+                      Remove member
+                    </button>
+                  </div>
+                </form> */}
+
+                <form className="post-form" onSubmit={handleCreatePost}>
+                  <textarea
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    placeholder={selectedGroup ? `Share to ${selectedGroup}...` : "Create/select a group first."}
+                    maxLength={1000}
+                    disabled={!selectedGroup}
+                  />
+                  <button type="submit" disabled={!selectedGroup}>
+                    Post
+                  </button>
+                </form>
+              </section>
+            </div>
+          )}
+
+          {isGroupModalOpen && (
+            <div className="modal-overlay" onClick={() => setIsGroupModalOpen(false)}>
+              <section className="modal-card" onClick={(e) => e.stopPropagation()}>
+                <header className="modal-header">
+                  <h2>Group Management</h2>
+                  <button className="secondary" onClick={() => setIsGroupModalOpen(false)}>
+                    Close
+                  </button>
+                </header>
+
+                <form className="group-form" onSubmit={handleCreateGroup}>
+                  <label htmlFor="group-name">Create Group</label>
+                  <div className="member-row">
+                    <input
+                      id="group-name"
+                      value={newGroupName}
+                      onChange={(e) => setNewGroupName(e.target.value)}
+                      placeholder="e.g. csu-team"
+                      minLength={1}
+                      maxLength={64}
+                      required
+                    />
+                    <button type="submit">Create group</button>
+                  </div>
+                </form>
+
+                <div className="group-picker">
+                  <label htmlFor="group-select-manage">Current Group</label>
+                  <select
+                    id="group-select-manage"
+                    value={selectedGroup}
+                    onChange={(e) => setSelectedGroup(e.target.value)}
+                    disabled={groups.length === 0}
+                  >
+                    {groups.length === 0 ? (
+                      <option value="">No groups yet. Create one.</option>
+                    ) : (
+                      groups.map((group) => (
+                        <option key={group} value={group}>
+                          {group}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+
+                <form className="member-form" onSubmit={handleAddMember}>
+                  <label htmlFor="member-username">Add Member To Current Group</label>
+                  <div className="member-row">
+                    <select
+                      id="member-username"
+                      value={memberUsername}
+                      onChange={(e) => setMemberUsername(e.target.value)}
+                      required
+                      disabled={memberOptions.length === 0 || !selectedGroup}
+                    >
+                      {memberOptions.length === 0 ? (
+                        <option value="">No available users to add</option>
+                      ) : (
+                        memberOptions.map((candidate) => (
+                          <option key={candidate} value={candidate}>
+                            {candidate}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    <button type="submit" disabled={memberOptions.length === 0 || !selectedGroup}>
+                      Add member
+                    </button>
+                  </div>
+                </form>
+
+                <form className="member-form" onSubmit={handleRemoveMember}>
+                  <label htmlFor="member-remove">Remove Member From Current Group</label>
+                  <div className="member-row">
+                    <select
+                      id="member-remove"
+                      value={memberToRemove}
+                      onChange={(e) => setMemberToRemove(e.target.value)}
+                      required
+                      disabled={removeMemberOptions.length === 0 || !selectedGroup}
+                    >
+                      {removeMemberOptions.length === 0 ? (
+                        <option value="">No removable members in this group</option>
+                      ) : (
+                        removeMemberOptions.map((candidate) => (
+                          <option key={candidate} value={candidate}>
+                            {candidate}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    <button type="submit" disabled={removeMemberOptions.length === 0 || !selectedGroup}>
+                      Remove member
+                    </button>
+                  </div>
+                </form>
+              </section>
+            </div>
+          )}
         </section>
       )}
     </main>

@@ -108,6 +108,19 @@ export async function addGroupMemberToGroup(token: string, groupName: string, us
   await parseOrThrow(response);
 }
 
+export async function removeGroupMemberFromGroup(token: string, groupName: string, username: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/groups/members/remove`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ group_name: groupName, username }),
+  });
+
+  await parseOrThrow(response);
+}
+
 export async function fetchUsers(token: string, groupName: string): Promise<{ users: string[]; group_members: string[] }> {
   const response = await fetch(`${API_BASE}/users?group_name=${encodeURIComponent(groupName)}`, {
     headers: { Authorization: `Bearer ${token}` },

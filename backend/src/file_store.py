@@ -302,6 +302,28 @@ class TextBackedStore:
             "key_version": new_version,
         }
 
+    def remove_member_from_group(self, requester: str, group_name: str, username_to_remove: str) -> Dict[str, int | str]:
+        members = self._members(group_name)
+        if not members:
+            raise ValueError("Group does not exist.")
+
+        if requester not in members:
+            raise ValueError("Only existing group members can remove members.")
+
+        if username_to_remove not in members:
+            raise ValueError("User is not a member of this group.")
+
+        remaining_members = sorted([member for member in members if member != username_to_remove])
+        if not remaining_members:
+            raise ValueError("Cannot remove the last member from a group.")
+
+        new_version = self._rotate_group_key(group_name, remaining_members)
+        return {
+            "group": group_name,
+            "removed_user": username_to_remove,
+            "key_version": new_version,
+        }
+
     def list_usernames(self) -> List[str]:
         users_ref = self.db.collection("users")
         usernames = [doc.id for doc in users_ref.stream()]
