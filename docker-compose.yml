@@ -8,7 +8,6 @@ services:
       - "8000:8000"
     volumes:
       - ./firebase.json:/app/firebase.json
-      # - ./backend/data:/app/data
       - ./backend/src:/app/src
       - ./backend/run_web.py:/app/run_web.py
     restart: unless-stopped

@@ -5,7 +5,7 @@ This project is a full-stack discussion board prototype with:
 - FastAPI backend
 - Signup/Login flow
 - Protected post endpoints using Bearer token auth
-- JSON-backed storage for local development (`backend/data/web_store.json`)
+- Firestore-backed storage for users, sessions, and posts
 
 ## Requirements
 
@@ -19,13 +19,17 @@ This project is a full-stack discussion board prototype with:
 - `backend/requirements.txt`: backend dependencies
 - `backend/run_web.py`: backend launcher
 - `backend/src/web_api.py`: FastAPI routes
-- `backend/src/file_store.py`: JSON-backed persistence
-- `backend/data/web_store.json`: local users/sessions/posts store
+- `backend/src/file_store.py`: Firestore-backed persistence
+- `firebase.json`: Firebase service account credentials (project root, for Docker)
 - `frontend/`: React + TypeScript client
+
+## Firebase Setup
+
+1. For Docker, place `firebase.json` at the project root (same level as `docker-compose.yml`).
+2. For local backend runs from `backend/`, place `firebase.json` at `backend/firebase.json`.
 
 ## Run With Docker Compose
 
-Place `firebase.json` in the project root (same level as `docker-compose.yml`)
 
 ```bash
 docker compose up -d
@@ -52,6 +56,8 @@ python run_web.py
 ```
 
 Backend runs on `http://127.0.0.1:8000`.
+
+Note: local backend execution expects credentials at `backend/firebase.json`.
 
 ### 2) Start frontend
 

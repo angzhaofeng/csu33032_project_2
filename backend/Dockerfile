@@ -7,7 +7,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY run_web.py ./
 COPY src ./src
-# COPY data ./data
 
 EXPOSE 8000
 

@@ -1,4 +1,4 @@
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -31,7 +31,17 @@ class LoginRequest(BaseModel):
 
 
 class CreatePostRequest(BaseModel):
+    group_name: str = Field(min_length=1, max_length=64)
     content: str = Field(min_length=1, max_length=1000)
+
+
+class AddGroupMemberRequest(BaseModel):
+    group_name: str = Field(min_length=1, max_length=64)
+    username: str = Field(min_length=3, max_length=30)
+
+
+class CreateGroupRequest(BaseModel):
+    group_name: str = Field(min_length=1, max_length=64)
 
 
 class AuthResponse(BaseModel):
@@ -82,11 +92,56 @@ def login(payload: LoginRequest) -> AuthResponse:
 
 
 @app.get("/posts")
-def get_posts(_: str = Depends(get_current_user)) -> dict:
-    return {"posts": store.list_posts()}
+def get_posts(
+    username: str = Depends(get_current_user),
+    group_name: str | None = Query(default=None),
+) -> dict:
+    return {"posts": store.list_posts(username=username, group_name=group_name)}
+
+
+@app.get("/groups")
+def get_groups(username: str = Depends(get_current_user)) -> dict:
+    return {"groups": store.list_groups_for_user(username)}
+
+
+@app.post("/groups", status_code=201)
+def create_group(payload: CreateGroupRequest, requester: str = Depends(get_current_user)) -> dict:
+    try:
+        result = store.create_group(creator=requester, group_name=payload.group_name.strip())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"message": "Group created.", "group": result}
+
+
+@app.get("/users")
+def get_users(group_name: str, _: str = Depends(get_current_user)) -> dict:
+    return {
+        "users": store.list_usernames(),
+        "group_members": store.list_group_members_for_group(group_name),
+    }
 
 
 @app.post("/posts", status_code=201)
 def create_post(payload: CreatePostRequest, username: str = Depends(get_current_user)) -> dict:
-    post = store.create_post(username=username, content=payload.content.strip())
+    try:
+        post = store.create_post(
+            username=username,
+            group_name=payload.group_name.strip(),
+            content=payload.content.strip(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     return {"post": post}
+
+
+@app.post("/groups/members", status_code=201)
+def add_group_member(payload: AddGroupMemberRequest, requester: str = Depends(get_current_user)) -> dict:
+    try:
+        result = store.add_member_to_group(
+            requester=requester,
+            group_name=payload.group_name.strip(),
+            username_to_add=payload.username.strip(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"message": "Member added to secure group.", "group": result}
