@@ -82,7 +82,7 @@ export async function fetchPostsForGroup(token: string, groupName: string): Prom
   return data.posts;
 }
 
-export async function createPost(token: string, groupName: string, content: string): Promise<void> {
+export async function createPost(token: string, groupName: string | null, content: string): Promise<void> {
   const response = await fetch(`${API_BASE}/posts`, {
     method: "POST",
     headers: {

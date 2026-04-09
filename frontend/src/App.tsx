@@ -169,7 +169,7 @@ export default function App() {
 
   async function handleCreatePost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!message.trim() || !selectedGroup) {
+    if (!message.trim()) {
       return;
     }
 
@@ -177,7 +177,7 @@ export default function App() {
     setInfo("");
 
     try {
-      await createPost(token, selectedGroup, message.trim());
+      await createPost(token, selectedGroup || null, message.trim());
       setMessage("");
       await loadPosts(token);
       setIsComposerOpen(false);
@@ -310,7 +310,7 @@ export default function App() {
                   <strong>{post.author}</strong>
                   <span>{formatTimestamp(post.created_at)}</span>
                 </div>
-                <p className="group-tag">{post.encrypted ? `` : `Group: ${post.group}`}</p>
+                {post.group && <p className="group-tag">Group: {post.group}</p>}
                 <p className={post.encrypted ? "post-tag post-tag-encrypted" : "post-tag post-tag-clear"}>
                   {post.encrypted ? "Encrypted (not decryptable with your key)" : "Decrypted for your group access"}
                 </p>
@@ -405,11 +405,10 @@ export default function App() {
                   <textarea
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
-                    placeholder={selectedGroup ? `Share to ${selectedGroup}...` : "Create/select a group first."}
+                    placeholder={selectedGroup ? `Share to ${selectedGroup}...` : "Share a public post..."}
                     maxLength={1000}
-                    disabled={!selectedGroup}
                   />
-                  <button type="submit" disabled={!selectedGroup}>
+                  <button type="submit">
                     Post
                   </button>
                 </form>

@@ -31,7 +31,7 @@ class LoginRequest(BaseModel):
 
 
 class CreatePostRequest(BaseModel):
-    group_name: str = Field(min_length=1, max_length=64)
+    group_name: str | None = Field(default=None, min_length=1, max_length=64)
     content: str = Field(min_length=1, max_length=1000)
 
 
@@ -131,7 +131,7 @@ def create_post(payload: CreatePostRequest, username: str = Depends(get_current_
     try:
         post = store.create_post(
             username=username,
-            group_name=payload.group_name.strip(),
+            group_name=payload.group_name.strip() if payload.group_name else None,
             content=payload.content.strip(),
         )
     except ValueError as exc:

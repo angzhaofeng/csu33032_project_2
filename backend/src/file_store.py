@@ -135,13 +135,8 @@ class TextBackedStore:
             return []
         return group_doc.to_dict().get("members", [])
 
-    def _rotate_group_key(self, group_name: str, members: List[str]) -> int:
-        group_doc = self._group_ref(group_name).get()
-        current_version = 0
-        if group_doc.exists:
-            current_version = group_doc.to_dict().get("current_key_version", 0)
-
-        new_version = current_version + 1
+    def _create_group_key(self, group_name: str, members: List[str]) -> None:
+        """Create the initial group key and wrap it for all members."""
         raw_group_key = AESGCM.generate_key(bit_length=256)
 
         wrapped_keys: Dict[str, str] = {}
@@ -161,25 +156,85 @@ class TextBackedStore:
             )
             wrapped_keys[member] = self._b64encode(wrapped)
 
-        self._group_key_ref(group_name, new_version).set(
+        # Store key version 1 (only version for this group, never rotated)
+        self._group_key_ref(group_name, 1).set(
             {
-                "version": new_version,
+                "version": 1,
                 "wrapped_keys": wrapped_keys,
                 "created_at": self._utcnow(),
             }
         )
 
-        self._group_ref(group_name).set(
-            {
-                "name": group_name,
-                "members": members,
-                "current_key_version": new_version,
-                "updated_at": self._utcnow(),
-            },
-            merge=True,
+    def _add_wrapped_key_for_member(self, group_name: str, username: str) -> None:
+        """Add a wrapped key entry for a new member using the existing group key."""
+        key_doc = self._group_key_ref(group_name, 1).get()
+        if not key_doc.exists:
+            raise ValueError("Group key not initialized.")
+
+        # Get the existing raw key by unwrapping it from any current member
+        members = self._members(group_name)
+        if not members:
+            raise ValueError("No members in group to derive key from.")
+
+        # Find any current member to unwrap the key
+        raw_group_key = None
+        for member in members:
+            try:
+                raw_group_key = self._unwrap_group_key_for_user(group_name, member, 1)
+                break
+            except ValueError:
+                continue
+
+        if raw_group_key is None:
+            raise ValueError("Could not unwrap group key.")
+
+        # Wrap the same key for the new member
+        user_doc = self.db.collection("users").document(username).get()
+        if not user_doc.exists:
+            raise ValueError("User does not exist.")
+
+        user_data = user_doc.to_dict()
+        public_key = self._load_public_key(user_data["public_key_pem"])
+        wrapped = public_key.encrypt(
+            raw_group_key,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            ),
         )
 
-        return new_version
+        # Update the wrapped_keys map
+        wrapped_keys = key_doc.to_dict().get("wrapped_keys", {})
+        wrapped_keys[username] = self._b64encode(wrapped)
+
+        self._group_key_ref(group_name, 1).set(
+            {
+                "version": 1,
+                "wrapped_keys": wrapped_keys,
+                "created_at": key_doc.to_dict().get("created_at", self._utcnow()),
+            }
+        )
+
+    def _remove_wrapped_key_for_member(self, group_name: str, username: str) -> None:
+        """Remove a member's wrapped key entry from the group key."""
+        key_doc = self._group_key_ref(group_name, 1).get()
+        if not key_doc.exists:
+            raise ValueError("Group key not initialized.")
+
+        wrapped_keys = key_doc.to_dict().get("wrapped_keys", {})
+        if username not in wrapped_keys:
+            raise ValueError("User does not have a wrapped key in this group.")
+
+        del wrapped_keys[username]
+
+        self._group_key_ref(group_name, 1).set(
+            {
+                "version": 1,
+                "wrapped_keys": wrapped_keys,
+                "created_at": key_doc.to_dict().get("created_at", self._utcnow()),
+            }
+        )
 
     def _unwrap_group_key_for_user(self, group_name: str, username: str, version: int) -> bytes:
         key_doc = self._group_key_ref(group_name, version).get()
@@ -266,14 +321,14 @@ class TextBackedStore:
             {
                 "name": group_name,
                 "members": [creator],
-                "current_key_version": 0,
+                "current_key_version": 1,
                 "created_by": creator,
                 "created_at": self._utcnow(),
                 "updated_at": self._utcnow(),
             }
         )
-        key_version = self._rotate_group_key(group_name, [creator])
-        return {"group": group_name, "key_version": key_version}
+        self._create_group_key(group_name, [creator])
+        return {"group": group_name, "key_version": 1}
 
     def add_member_to_group(self, requester: str, group_name: str, username_to_add: str) -> Dict[str, int | str]:
         members = self._members(group_name)
@@ -294,12 +349,23 @@ class TextBackedStore:
         if username_to_add in members:
             raise ValueError("User is already a group member.")
 
+        # Add the new member to the members list
         updated_members = sorted(members + [username_to_add])
-        new_version = self._rotate_group_key(group_name, updated_members)
+        self._group_ref(group_name).set(
+            {
+                "members": updated_members,
+                "updated_at": self._utcnow(),
+            },
+            merge=True,
+        )
+
+        # Add wrapped key for the new member
+        self._add_wrapped_key_for_member(group_name, username_to_add)
+
         return {
             "group": group_name,
             "added_user": username_to_add,
-            "key_version": new_version,
+            "key_version": 1,
         }
 
     def remove_member_from_group(self, requester: str, group_name: str, username_to_remove: str) -> Dict[str, int | str]:
@@ -317,11 +383,22 @@ class TextBackedStore:
         if not remaining_members:
             raise ValueError("Cannot remove the last member from a group.")
 
-        new_version = self._rotate_group_key(group_name, remaining_members)
+        # Remove the member from the members list
+        self._group_ref(group_name).set(
+            {
+                "members": remaining_members,
+                "updated_at": self._utcnow(),
+            },
+            merge=True,
+        )
+
+        # Remove wrapped key for the member
+        self._remove_wrapped_key_for_member(group_name, username_to_remove)
+
         return {
             "group": group_name,
             "removed_user": username_to_remove,
-            "key_version": new_version,
+            "key_version": 1,
         }
 
     def list_usernames(self) -> List[str]:
@@ -361,7 +438,51 @@ class TextBackedStore:
             raise ValueError("Invalid or expired token.")
         return session_doc.to_dict()["username"]
 
-    def create_post(self, username: str, group_name: str, content: str) -> dict:
+    def create_post(self, username: str, group_name: str | None, content: str) -> dict:
+        posts_ref = self.db.collection('posts')
+        existing_posts = posts_ref.stream()
+        max_id = max([doc.to_dict().get('id', 0) for doc in existing_posts], default=0)
+        post_id = max_id + 1
+
+        # If no group, encrypt with author's public key
+        if not group_name:
+            user_doc = self.db.collection("users").document(username).get()
+            if not user_doc.exists:
+                raise ValueError("User does not exist.")
+            
+            user_data = user_doc.to_dict()
+            public_key = self._load_public_key(user_data["public_key_pem"])
+            
+            # Generate a random AES key for this personal post
+            personal_key = AESGCM.generate_key(bit_length=256)
+            
+            # Encrypt the AES key with the user's public key
+            wrapped_key = public_key.encrypt(
+                personal_key,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None,
+                ),
+            )
+            
+            # Encrypt the content with the AES key
+            encrypted = self._encrypt_content(content, personal_key)
+            
+            post = {
+                "id": post_id,
+                "group": None,
+                "author": username,
+                "content": encrypted["ciphertext_b64"],
+                "nonce_b64": encrypted["nonce_b64"],
+                "ciphertext_b64": encrypted["ciphertext_b64"],
+                "wrapped_key_b64": self._b64encode(wrapped_key),
+                "created_at": self._utcnow(),
+            }
+            posts_ref.document(str(post_id)).set(post)
+            return post
+
+        # Group-based post with encryption
         members = self._members(group_name)
         if username not in members:
             raise ValueError("User is not an active member of the secure group.")
@@ -376,11 +497,6 @@ class TextBackedStore:
 
         group_key = self._unwrap_group_key_for_user(group_name, username, key_version)
         encrypted = self._encrypt_content(content, group_key)
-
-        posts_ref = self.db.collection('posts')
-        existing_posts = posts_ref.stream()
-        max_id = max([doc.to_dict().get('id', 0) for doc in existing_posts], default=0)
-        post_id = max_id + 1
 
         post = {
             "id": post_id,
@@ -416,6 +532,43 @@ class TextBackedStore:
                 "author": post.get("author"),
                 "created_at": post.get("created_at"),
             }
+
+            # Ungrouped posts are encrypted with author's key
+            if not post_group:
+                post_author = post.get("author")
+                wrapped_key_b64 = post.get("wrapped_key_b64")
+                
+                # Only the author can decrypt their own ungrouped posts
+                if username == post_author and wrapped_key_b64:
+                    try:
+                        user_doc = self.db.collection("users").document(username).get()
+                        if user_doc.exists:
+                            user_private_key = self._load_private_key(user_doc.to_dict()["private_key_pem"])
+                            personal_key = user_private_key.decrypt(
+                                self._b64decode(wrapped_key_b64),
+                                padding.OAEP(
+                                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                                    algorithm=hashes.SHA256(),
+                                    label=None,
+                                ),
+                            )
+                            rendered["content"] = self._decrypt_content(
+                                post["nonce_b64"],
+                                post["ciphertext_b64"],
+                                personal_key,
+                            )
+                            rendered["encrypted"] = False
+                        else:
+                            rendered["content"] = post.get("ciphertext_b64", "")
+                            rendered["encrypted"] = True
+                    except Exception:
+                        rendered["content"] = post.get("ciphertext_b64", "")
+                        rendered["encrypted"] = True
+                else:
+                    rendered["content"] = post.get("ciphertext_b64", "")
+                    rendered["encrypted"] = True
+                decrypted_posts.append(rendered)
+                continue
 
             version = post.get("group_key_version")
             if not username or post_group not in allowed_groups or not version:
