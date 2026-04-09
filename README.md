@@ -90,3 +90,11 @@ Frontend runs on `http://localhost:5173`.
   "status": "ok"
 }
 ``` -->
+
+## Test Accounts
+- Username: `alice`, Password: `123456`
+- Username: `bob`, Password: `123456`
+- Username: `charlie`, Password: `123456`
+- Username: `delta`, Password: `123456`
+
+
